@@ -1,49 +1,91 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+import logging
+
 import torch
+import torch.optim as optim
+import torch.nn.functional as F
+import numpy as np
 import torch.nn as nn
 from torch.autograd import Variable
-import torch.nn.functional as F
+
+from milmodel import MIL_AnswerTrigger
+from utils import AverageMeter, weighted_binary_cross_entropy, get_n_params
 
 
-def ss(q):
-    print(q.shape)
+logger = logging.getLogger(__name__)
 
 
-class MIL_AnswerTrigger(nn.Module):
-    def __init__(self, args, word_embeddings):
-        super(MIL_AnswerTrigger, self).__init__()
-        self.args = args
-        self.embedding = nn.Embedding(args.vocab_size, args.emb_dim, padding_idx=0)
-        self.embedding.weight.data.copy_(torch.from_numpy(word_embeddings))
-        self.embedding.weight.requires_grad = False
-        self.embedding.cuda()
-        self.q_rnn = nn.GRU(args.emb_dim, args.hidden_size, num_layers=args.num_layers, batch_first=True, dropout=0, bidirectional=True)
-        self.p_rnn = nn.GRU(args.emb_dim, args.hidden_size, num_layers=args.num_layers, batch_first=True, dropout=0, bidirectional=True)
-        self.linear1 = nn.Linear(args.hidden_size * 2 * 2, args.hidden_size)
-        self.linear2 = nn.Linear(args.hidden_size, 1)
-        self.dropout = nn.Dropout(0.5)
-        self.dropout_emb = nn.Dropout(0.2)
-        self.dropout_fc = nn.Dropout(0.5)
+class MIL_Model(object):
+    def __init__(self, opt, embedding=None, state_dict=None):
+        ori = opt
+        opt = vars(opt)
+        self.opt = opt
+        self.updates = state_dict['updates'] if state_dict else 0
+        self.train_loss = AverageMeter()
+        self.network = MIL_AnswerTrigger(ori, embedding).cuda()
+        if state_dict:
+            new_state = set(self.network.state_dict().keys())
+            for k in list(state_dict['network']):
+                if k not in new_state:
+                    del state_dict['network'][k]
+            self.network.load_state_dict(state_dict['network'])
+        parameters = [p for p in self.network.parameters() if p.requires_grad]
+        if opt['optimizer'] == 'sgd':
+            self.optimizer = optim.SGD(parameters, opt['learning_rate'],
+                                       momentum=opt['momentum'],
+                                       weight_decay=opt['weight_decay'])
+        elif opt['optimizer'] == 'adamax':
+            self.optimizer = optim.Adamax(parameters,
+                                          weight_decay=opt['weight_decay'])
+        if state_dict:
+            self.optimizer.load_state_dict(state_dict['optimizer'])
+        logger.info('===========model structure============')
+        logger.info(repr(self.network))
+        logger.info('total model patameters %s' % get_n_params(self.network))
+        model_parameters = filter(lambda p: p.requires_grad, self.network.parameters())
+        params = sum([np.prod(p.size()) for p in model_parameters])
+        logger.info('trainable params : %s ' % params)
 
-    def forward(self, ex):
-        # ex = [q, s, label, s_label, q_w_mask, s_w_mask, s_mask]
-        q = Variable(torch.LongTensor(ex[0]).cuda())
-        s = Variable(torch.LongTensor(ex[1]).cuda()).transpose(0, 1)  # change sn and bn
-        s_emb = []
-        for i in range(len(s)):
-            s_emb.append(self.dropout_emb(self.embedding(s[i])))
-        q_emb = self.dropout_emb(self.embedding(q))
-        q_hidden = torch.cat(list(self.q_rnn(q_emb)[1]), dim=1)
-        p_hiddens = [torch.cat(list(self.p_rnn(x)[1]), dim=1) for x in s_emb]
-        scores = []
-        for p_hidden in p_hiddens:
-            merge = torch.cat([p_hidden, q_hidden], dim=1)
-            out = self.dropout(merge)
-            out = self.linear1(out)
-            out = self.dropout_fc(out)
-            out = F.relu(out)
-            score = self.linear2(out)
-            scores.append(F.sigmoid(score))
-        return scores
+    def update(self, ex):
+        self.network.train()
+        inputs = [Variable(torch.LongTensor(ex[0]).cuda()), Variable(torch.LongTensor(ex[1]).cuda()), Variable(torch.LongTensor(ex[4]).cuda()), Variable(torch.LongTensor(ex[5]).cuda())]
+        target = Variable(torch.Tensor(ex[3]).cuda())
+        score = self.network(*inputs)
+        loss = self.loss(score, target)
+        self.optimizer.zero_grad()
+        self.train_loss.update(loss.data[0])
+        loss.backward()
+        torch.nn.utils.clip_grad_norm(self.network.parameters(),
+                                      self.opt['grad_clipping'])
+        self.optimizer.step()
+        self.updates += 1
+
+    def predict(self, ex):
+        self.network.eval()
+        inputs = [Variable(torch.LongTensor(ex[0]).cuda()), Variable(torch.LongTensor(ex[1]).cuda()), Variable(torch.LongTensor(ex[4]).cuda()), Variable(torch.LongTensor(ex[5]).cuda())]
+        # target = Variable(torch.Tensor(ex[3]).cuda(async=True))
+        score = self.network(*inputs)
+        score = score.cpu().data.numpy().tolist()
+        return score
+
+    @staticmethod
+    def loss(score, target):
+        return weighted_binary_cross_entropy(score.view(-1), target.view(-1), weights=[1, 4])
+
+    def save(self, filename, epoch):
+        params = {
+            'state_dict': {
+                'network': self.network.state_dict(),
+                'optimizer': self.optimizer.state_dict(),
+                'updates': self.updates
+            },
+            'config': self.opt,
+            'epoch': epoch
+        }
+        try:
+            torch.save(params, filename)
+            logger.info('model saved to {}'.format(filename))
+        except BaseException:
+            logger.warn('[ WARN: Saving failed... continuing anyway. ]')

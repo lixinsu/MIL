@@ -1,7 +1,18 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-from sklearn.metrics import confusion_matrix, precision_score, f1_score
+from sklearn import metrics
+import torch
+
+def get_n_params(model):
+    """get number of model parameters"""
+    pp = 0
+    for p in list(model.parameters()):
+        nn = 1
+        for s in list(p.size()):
+            nn = nn * s
+        pp += nn
+    return pp
 
 
 class AverageMeter(object):
@@ -22,36 +33,21 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def evaluete_predictions(preds, dev_y):
-    # instance level
-    gts = [x[1] for x in dev_y]
-    pred_labels = [(1 if x >= 0.5 else 0) for x in preds]
-    print(confusion_matrix(gts, pred_labels))
-    print(precision_score(gts,pred_labels))
-    print(f1_score(gts, pred_labels))
-    results = [(x[0], x[1], preds[i]) for i,x in enumerate(dev_y)]
-    qid2info = {}
-    for qid, label, score in results:
-        if qid not in qid2info:
-            qid2info[qid] = [[], []]
-        qid2info[qid][0].append(label)
-        qid2info[qid][1].append(score)
-    bag_TP, bag_TN, bag_FP, bag_FN = 0, 0, 0, 0
-    for k in qid2info:
-        bag_pred = (1 if max(qid2info[k][1]) > 0.5 else 0)
-        bag_gt = (1 if sum(qid2info[k][0]) >= 1 else 0)
-        if bag_pred == bag_gt:
-            if bag_pred == 1:
-                bag_TP += 1
-            else:
-                bag_TN += 1
-        else:
-            if bag_pred == 1:
-                bag_FP += 1
-            else:
-                bag_FN += 1
-    precision = bag_TP * 1.0 / (bag_TP + bag_FP)
-    recall = bag_TP * 1.0 / (bag_TP + bag_FN)
-    f1 = 2 * precision * recall / (precision + recall)
-    log.info('precision %.4f, recall %.4f f1:%.4f' % (precision, recall, f1))
-    return f1
+def weighted_binary_cross_entropy(output, target, weights=None):
+    if weights is not None:
+        assert len(weights) == 2
+
+        loss = weights[1] * (target * torch.log(output)) + \
+               weights[0] * ((1 - target) * torch.log(1 - output))
+    else:
+        loss = target * torch.log(output) + (1 - target) * torch.log(1 - output)
+
+    return torch.neg(torch.mean(loss))
+
+
+def auc_para(pred_scores, gts):
+    """auc paragraph"""
+    pred_scores = [y for x in pred_scores for y in x]
+    gts = [y for x in gts for y in x]
+    fpr, tpr, thresholds = metrics.roc_curve(gts, pred_scores, pos_label=1)
+    return metrics.auc(fpr, tpr)
