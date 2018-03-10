@@ -1,5 +1,10 @@
-#!/usr/bin/env python
-# coding: utf-8
+#!/usr/bin/env python3
+# Copyright 2017-present, Facebook, Inc.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+"""Definitions of model layers/NN modules"""
 
 import torch
 import torch.nn as nn
@@ -14,6 +19,7 @@ from torch.autograd import Variable
 
 class StackedBRNN(nn.Module):
     """Stacked Bi-directional RNNs.
+
     Differs from standard PyTorch library in that it has the option to save
     and concat the hidden states between layers. (i.e. the output hidden size
     for each sequence input is num_layers * hidden_size).
@@ -37,8 +43,10 @@ class StackedBRNN(nn.Module):
 
     def forward(self, x, x_mask):
         """Encode either padded or non-padded sequences.
+
         Can choose to either handle or ignore variable length sequences.
         Always handle padding in eval.
+
         Args:
             x: batch * len * hdim
             x_mask: batch * len (1 for padding, 0 for true)
@@ -48,9 +56,9 @@ class StackedBRNN(nn.Module):
         if x_mask.data.sum() == 0:
             # No padding necessary.
             output = self._forward_unpadded(x, x_mask)
-        elif self.padding or not self.training:
+        #elif self.padding or not self.training:
             # Pad if we care or if its during eval.
-            output = self._forward_padded(x, x_mask)
+        #    output = self._forward_padded(x, x_mask)
         else:
             # We don't care.
             output = self._forward_unpadded(x, x_mask)
@@ -61,7 +69,8 @@ class StackedBRNN(nn.Module):
         """Faster encoding that ignores any padding."""
         # Transpose batch and sequence dims
         x = x.transpose(0, 1)
-
+        lengths = x_mask.data.eq(0).long().sum(1).squeeze()
+        #print(lengths)
         # Encode all layers
         outputs = [x]
         for i in range(self.num_layers):
@@ -98,6 +107,8 @@ class StackedBRNN(nn.Module):
         """
         # Compute sorted sequence lengths
         lengths = x_mask.data.eq(0).long().sum(1).squeeze()
+        #lengths[lengths==0] =1
+        #print(lengths)
         _, idx_sort = torch.sort(lengths, dim=0, descending=True)
         _, idx_unsort = torch.sort(idx_sort, dim=0)
 
@@ -159,6 +170,7 @@ class StackedBRNN(nn.Module):
 
 class SeqAttnMatch(nn.Module):
     """Given sequences X and Y, match sequence Y to each element in X.
+
     * o_i = sum(alpha_j * y_j) for i in X
     * alpha_j = softmax(y_j * x_i)
     """
@@ -197,7 +209,7 @@ class SeqAttnMatch(nn.Module):
         scores.data.masked_fill_(y_mask.data, -float('inf'))
 
         # Normalize with softmax
-        alpha_flat = F.softmax(scores.view(-1, y.size(1)), dim=1)
+        alpha_flat = F.softmax(scores.view(-1, y.size(1)))
         alpha = alpha_flat.view(-1, x.size(1), y.size(1))
 
         # Take weighted average
@@ -207,7 +219,9 @@ class SeqAttnMatch(nn.Module):
 
 class BilinearSeqAttn(nn.Module):
     """A bilinear attention layer over a sequence X w.r.t y:
+
     * o_i = softmax(x_i'Wy) for x_i in X.
+
     Optionally don't normalize output weights.
     """
 
@@ -241,12 +255,13 @@ class BilinearSeqAttn(nn.Module):
                 # ...Otherwise 0-1 probabilities
                 alpha = F.softmax(xWy)
         else:
-            alpha = xWy.exp()
+            alpha = alpha = F.softmax(xWy)
         return alpha
 
 
 class LinearSeqAttn(nn.Module):
     """Self attention over a sequence:
+
     * o_i = softmax(Wx_i) for x_i in X.
     """
 
@@ -276,6 +291,7 @@ class LinearSeqAttn(nn.Module):
 
 def uniform_weights(x, x_mask):
     """Return uniform weights over non-masked x (a sequence of vectors).
+
     Args:
         x: batch * len * hdim
         x_mask: batch * len (1 for padding, 0 for true)
@@ -292,6 +308,7 @@ def uniform_weights(x, x_mask):
 
 def weighted_avg(x, weights):
     """Return a weighted average of x (a sequence of vectors).
+
     Args:
         x: batch * len * hdim
         weights: batch * len, sum(dim = 1) = 1

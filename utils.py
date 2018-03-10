@@ -50,4 +50,28 @@ def auc_para(pred_scores, gts):
     pred_scores = [y for x in pred_scores for y in x]
     gts = [y for x in gts for y in x]
     fpr, tpr, thresholds = metrics.roc_curve(gts, pred_scores, pos_label=1)
-    return metrics.auc(fpr, tpr)
+    precision, recall, thresholds = metrics.precision_recall_curve(gts, pred_scores)
+    return metrics.auc(fpr, tpr), metrics.auc(recall, precision)
+
+
+
+def auc_question(pred_scores, gts):
+    """question level auc"""
+    pred_scores =[max(x) for x in pred_scores]
+    gts = [max(x) for x in gts]
+    fpr, tpr, thresholds = metrics.roc_curve(gts, pred_scores, pos_label=1)
+    precision, recall, thresholds = metrics.precision_recall_curve(gts, pred_scores)
+    return metrics.auc(fpr, tpr), metrics.auc(recall, precision)
+
+
+def F1_para(pred_scores, gts, thresh=0.5):
+    """auc paragraph"""
+    pred_labels = [(1 if y > thresh else 0) for x in pred_scores for y in x]
+    gts = [y for x in gts for y in x]
+    return metrics.f1_score(gts, pred_labels)
+
+def F1_question(pred_scores, gts, thresh=0.5):
+    """question level auc"""
+    pred_labels =[(1 if max(x) > thresh else 0) for x in pred_scores]
+    gts = [max(x) for x in gts]
+    return metrics.f1_score(gts, pred_labels)
