@@ -10,7 +10,7 @@ import numpy as np
 import torch.nn as nn
 from torch.autograd import Variable
 
-from milmodel_drqa import MIL_AnswerTrigger
+from milmodel import MIL_AnswerTrigger
 from utils import AverageMeter, weighted_binary_cross_entropy, get_n_params
 
 
@@ -92,7 +92,7 @@ class MIL_Model(object):
 
     @staticmethod
     def loss(score, target):
-        final_loss = weighted_binary_cross_entropy(score.view(-1), target.view(-1), weights=[1, 4])
+        final_loss = weighted_binary_cross_entropy(score.view(-1), target.view(-1), weights=[1,1])
         #print(final_loss)
         return final_loss
 
