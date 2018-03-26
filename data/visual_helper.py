@@ -4,7 +4,7 @@
 from visdom import Visdom
 import numpy as np
 
-viz = Visdom(port=8093)
+viz = Visdom(port=8094)
 
 
 class Visual(object):
@@ -33,7 +33,7 @@ class Visual(object):
                     name=line_name,
                     update='append'
                     )
-        self.index += 1
+        #self.index += 1
 
     def plot(self, line_val):
         for k,v in line_val.items():

@@ -28,7 +28,7 @@ class RnnDocReader(nn.Module):
         self.embedding = nn.Embedding(args.vocab_size,
                                       args.embedding_dim,
                                       padding_idx=0)
-        self.embedding.weight.data.copy_(torch.from_numpy(args.word_embeddings))
+        #self.embedding.weight.data.copy_(torch.from_numpy(args.word_embeddings))
         self.embedding.weight.requires_grad = False
         # Projection for attention weighted question
         if args.use_qemb:

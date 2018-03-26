@@ -10,7 +10,7 @@ from rnn_reader import RnnDocReader
 
 
 class MIL_AnswerTrigger(nn.Module):
-    def __init__(self, args, word_embeddings):
+    def __init__(self, args):
         super(MIL_AnswerTrigger, self).__init__()
         args.word_embeddings = word_embeddings
         self.fill_args(args)
@@ -24,7 +24,7 @@ class MIL_AnswerTrigger(nn.Module):
 
     def fill_args(self, args):
         args.vocab_size = len(args.word_embeddings)
-        args.embedding_dim = len(args.word_embeddings[0])
+        args.embedding_dim = args.emb_dim
         args.use_qemb = True
         args.num_features = 0
         args.doc_layers = 2

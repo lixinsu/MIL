@@ -72,3 +72,12 @@ class ReaderDataset(Dataset):
     def __getitem__(self, index):
         return vectorize(self.examples[index], self.model)
 
+    @property
+    def weights(self):
+        labels = [max(x['label']) for x in self.examples]
+        assert type(labels[0]) == int
+        print(labels[:3])
+        pos = sum(labels)
+        neg = len(self.examples) - pos
+        return [neg if x == 1 else pos for x in labels]
+

@@ -41,7 +41,7 @@ class MIL_AnswerTrigger(nn.Module):
         p_hiddens = [torch.cat(list(self.p_rnn(x)[1]), dim=1) for x in s_emb]
         global_rnn_input = torch.cat([x.unsqueeze(1) for x in p_hiddens], dim=1)
 
-        p_global = torch.max(global_rnn_input, dim=1)[0]
+        p_global = torch.mean(global_rnn_input, dim=1)
         #p_global = torch.cat(list(self.global_rnn(global_rnn_input)[1]), dim=1)
         scores = []
         for p_hidden in p_hiddens:

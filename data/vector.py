@@ -5,7 +5,7 @@ from collections import Counter
 
 
 def vectorize(ex, model):
-    args = model.opt
+    args = model.args
     word_dict = model.word_dict
     #feature_dict = model.feature_dict
 
@@ -15,7 +15,7 @@ def vectorize(ex, model):
     label = ex['label']
     assert len(document) == len(label)
 
-    while len(document) < args['sent_num']:
+    while len(document) < args.sent_num:
         document.append(torch.LongTensor([0]))
         label.append(0)
     # Tensor

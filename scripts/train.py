@@ -22,7 +22,7 @@ from data import utils, vector, data, visual_helper
 def parse_args():
     parser = argparse.ArgumentParser()
     # runtime environment
-    parser.add_argument('--num-epochs', type=int, default=40,
+    parser.add_argument('--num-epochs', type=int, default=10,
                         help='Train data iterations')
     parser.add_argument('--batch-size', type=int, default=32,
                         help='Batch size for training')
@@ -33,12 +33,15 @@ def parse_args():
     parser.add_argument('--test-batch-size', type=int, default=128,
                         help='Batch size during validation/testing')
     parser.add_argument('--cuda', type=bool, default=True, help='use cuda')
+    parser.add_argument('--weighted-sample', type=bool, default=False, help='weighted sample')
 
     # files
     parser.add_argument('--data-dir', default='quasart', help='data dir')
     parser.add_argument('--task', default='quasart', help='identity for plot')
     parser.add_argument('--train-file', default='sample_train-processed-spacy.txt', help='train data file')
     parser.add_argument('--dev-file', default='sample_val-processed-spacy.txt', help='train data file')
+    parser.add_argument('--model-name', default='balance_quasart', type=str, help='save model name')
+    parser.add_argument('--model-dir', default='saved_models/quasart', type=str, help='save model directory')
     parser.add_argument('--embed-dir', type=str, default='embeddings',
                         help='Directory of pre-trained embedding files')
     parser.add_argument('--embedding-file', type=str,
@@ -62,7 +65,6 @@ def parse_args():
     parser.add_argument('--momentum', type=float, default=0, help='only applied to SGD.')
     parser.add_argument('--optimizer', default='adamax', help='supported optimizer: adamax, sgd')
     parser.add_argument('--loss', default='merge', help='loss function')
-    parser.add_argument('--model-name', default=None, type=str, help='save model name')
     return parser.parse_args()
 
 args = parse_args()
@@ -94,6 +96,8 @@ def init_from_scratch(args, train_exs, dev_exs):
     model = MIL_Model(args, word_dict, state_dict=None)
     if args.embedding_file:
         model.load_embeddings(word_dict.tokens(), args.embedding_file)
+    model.init_optimizer(args)
+    model.gpu()
     return model
 
 
@@ -120,7 +124,7 @@ def evaluate(args, model, data_loader, epoch, name):
 
 
 
-viz = Visdom(port=8093)
+viz = Visdom(port=8094)
 def train():
     viz.line(
             X=np.array([0]),
@@ -148,20 +152,23 @@ def train():
     logger.info('-' * 100)
     logger.info('Training model from scratch...')
     model = init_from_scratch(args, train_exs, dev_exs)
-    model.network.cuda()
 
     # --------------------------------------------------------------------------
     # DATA ITERATORS
     # Two datasets: train and dev.
     train_dataset = data.ReaderDataset(train_exs, model)
-    train_sampler = torch.utils.data.sampler.RandomSampler(train_dataset)
+    if args.weighted_sample:
+        train_sampler = torch.utils.data.sampler.WeightedRandomSampler(train_dataset.weights, len(train_dataset), replacement=True)
+    else:
+        train_sampler = torch.utils.data.sampler.RandomSampler(train_dataset)
     train_loader = torch.utils.data.DataLoader(
             train_dataset,
             batch_size=args.batch_size,
             sampler=train_sampler,
             num_workers=args.data_workers,
             collate_fn=vector.batchify,
-            pin_memory=args.cuda,
+            pin_memory=True,
+            drop_last=True,
     )
     dev_dataset = data.ReaderDataset(dev_exs, model)
     dev_sampler = torch.utils.data.sampler.SequentialSampler(dev_dataset)
@@ -171,7 +178,7 @@ def train():
             sampler=dev_sampler,
             num_workers=args.data_workers,
             collate_fn=vector.batchify,
-            pin_memory=args.cuda,
+            pin_memory=True,
     )
     start_epoch = 0
     logger.info('-' * 100)
@@ -193,6 +200,7 @@ def train():
         results.update( evaluate(args, model, train_loader, epoch, 'train'))
         logger.info(results)
         visual.plot(results)
+        model.save(os.path.join(args.model_dir, args.model_name), epoch)
 
 
 if __name__ == "__main__":
